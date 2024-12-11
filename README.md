@@ -1,18 +1,10 @@
 [![Unix build](https://img.shields.io/github/actions/workflow/status/Kong/kong-plugin/test.yml?branch=master&label=Test&logo=linux)](https://github.com/Kong/kong-plugin/actions/workflows/test.yml)
 [![Luacheck](https://github.com/Kong/kong-plugin/workflows/Lint/badge.svg)](https://github.com/Kong/kong-plugin/actions/workflows/lint.yml)
 
-Kong plugin template
+Kong Remote Auth Plugin
 ====================
 
-This repository contains a very simple Kong plugin template to get you
-up and running quickly for developing your own plugins.
-
-This template was designed to work with the
-[`kong-pongo`](https://github.com/Kong/kong-pongo) and
-[`kong-vagrant`](https://github.com/Kong/kong-vagrant) development environments.
-
-Please check out those repos `README` files for usage instructions. For a complete
-walkthrough check [this blogpost on the Kong website](https://konghq.com/blog/custom-lua-plugin-kong-gateway).
+This repository is a demonstration of a remote authentication plugin for Kong.
 
 
 Naming and versioning conventions

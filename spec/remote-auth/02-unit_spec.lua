@@ -1,17 +1,16 @@
 -- local helpers = require "spec.helpers"
 
-local PLUGIN_NAME = "myplugin"
+local PLUGIN_NAME = "remote-auth"
 
 
 
 describe(PLUGIN_NAME .. ": (unit)", function()
-
   local plugin, config
   local header_name, header_value
 
 
   setup(function()
-    _G.kong = {  -- mock the basic Kong function we use in our plugin
+    _G.kong = { -- mock the basic Kong function we use in our plugin
       log = {
         inspect = function() end
       },
@@ -32,7 +31,7 @@ describe(PLUGIN_NAME .. ": (unit)", function()
     }
 
     -- load the plugin code
-    plugin = require("kong.plugins."..PLUGIN_NAME..".handler")
+    plugin = require("kong.plugins." .. PLUGIN_NAME .. ".handler")
   end)
 
 
@@ -60,5 +59,4 @@ describe(PLUGIN_NAME .. ": (unit)", function()
     assert.equal("bye-world", header_name)
     assert.equal("this is on the response", header_value)
   end)
-
 end)

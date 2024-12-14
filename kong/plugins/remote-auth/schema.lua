@@ -1,6 +1,5 @@
 local typedefs = require "kong.db.schema.typedefs"
 
-
 local PLUGIN_NAME = "remote-auth"
 
 
@@ -8,8 +7,8 @@ local schema = {
   name = PLUGIN_NAME,
   fields = {
     -- the 'fields' array is the top-level entry with fields defined by Kong
-    { consumer = typedefs.no_consumer }, -- this plugin cannot be configured on a consumer (typical for auth plugins)
-    { protocols = typedefs.protocols_http },
+    { consumer = typedefs.no_consumer },     -- this plugin cannot be configured on a consumer (typical for auth plugins)
+    { protocols = typedefs.protocols_http }, -- http protocols only
     {
       config = {
         -- The 'config' record is the custom part of the plugin schema
@@ -17,31 +16,18 @@ local schema = {
         fields = {
           -- a standard defined field (typedef), with some customizations
           {
-            request_header = typedefs.header_name {
+            request_auth_header = typedefs.header_name {
               required = true,
-              default = "Hello-World" }
-          },
-          {
-            response_header = typedefs.header_name {
-              required = true,
-              default = "Bye-World" }
-          },
-          {
-            ttl = { -- self defined field
-              type = "integer",
-              default = 600,
-              required = true,
-              gt = 0,
+              default = "X-Auth-Header",
             }
-          },              -- adding a constraint for the value
+          },
+          {
+            auth_server = typedefs.url {
+              required = true,
+            }
+          },
         },
-        entity_checks = {
-          -- add some validation rules across fields
-          -- the following is silly because it is always true, since they are both required
-          { at_least_one_of = { "request_header", "response_header" }, },
-          -- We specify that both header-names cannot be the same
-          { distinct = { "request_header", "response_header" } },
-        },
+        entity_checks = {},
       },
     },
   },

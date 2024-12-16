@@ -7,7 +7,7 @@ local plugin = {
 
 
 function plugin:access(plugin_conf)
-  return auth.remote_authenticate(plugin_conf)
+  return auth.authenticate(plugin_conf)
 end
 
 return plugin

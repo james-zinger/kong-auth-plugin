@@ -47,8 +47,9 @@ local function request_auth(conf, request_token)
   local timeout = conf.auth_request_timeout
   local keepalive = conf.auth_request_keepalive
   local token_prefix = conf.auth_request_token_prefix
-  local parsed_url = parse_url(conf.auth_request_url)
-  local request_header = conf.auth_request_header
+  local parsed_url = parse_url(conf.request_auth_url)
+  local request_header = conf.auth_request_token_header
+  local response_token_header = conf.auth_response_token_header
   local host = parsed_url.host
   local port = tonumber(parsed_url.port)
 
@@ -62,7 +63,7 @@ local function request_auth(conf, request_token)
     headers[request_header] = request_token
   end
 
-  if conf.headers then
+  if conf.auth_request_headers then
     for h, v in pairs(conf.headers) do
       headers[h] = headers[h] or v
     end
@@ -83,13 +84,13 @@ local function request_auth(conf, request_token)
     return nil, "authentication failed with status: " .. res.status
   end
 
-  local token = res.get_header(conf.auth_response_header)
+  local token = res.get_header(response_token_header)
   return token, nil
 end
 
 
 function _M.authenticate(conf)
-  local request_header = conf.request_auth_header
+  local request_header = conf.inbound_auth_header
   local request_token = kong.request.get_header(request_header)
 
   -- If the header is missing, then reject the request
@@ -106,7 +107,13 @@ function _M.authenticate(conf)
   -- set header in forwarded request
   if auth_token then
     local service_auth_header = conf.service_auth_header
-    kong.service.request.set_header(service_auth_header)
+    local service_token_prefix = conf.service_auth_header_value_prefix
+
+    local header_value = auth_token
+    if service_token_prefix then
+      header_value = service_token_prefix .. auth_token
+    end
+    kong.service.request.set_header(service_auth_header, header_value)
   else
     return bad_gateway("Upsteam Authentication server returned an empty response")
   end

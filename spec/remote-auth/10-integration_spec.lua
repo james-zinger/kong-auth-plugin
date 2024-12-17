@@ -1,35 +1,49 @@
-local cjson                 = require "cjson"
-local jwt_parser            = require "kong.plugins.jwt.jwt_parser"
-local helpers               = require "spec.helpers"
-local http_mock             = require "spec.helpers.http_mock"
-local fixtures              = require "spec.remote-auth.fixtures"
+local cjson                    = require "cjson"
+local jwt_parser               = require "kong.plugins.jwt.jwt_parser"
+local helpers                  = require "spec.helpers"
+local http_mock                = require "spec.helpers.http_mock"
+local fixtures                 = require "spec.remote-auth.fixtures"
 
-local PLUGIN_NAME           = "remote-auth"
+local PLUGIN_NAME              = "remote-auth"
 
-local mock_http_server_port = helpers.get_available_port()
-local mock                  = http_mock.new("127.0.0.1:" .. mock_http_server_port, {
-  ["/auth"] = {
-    access = [[
-          local jwt_parser  = require "kong.plugins.jwt.jwt_parser"
-          local fixtures    = require "spec.remote-auth.fixtures"
-          local json = require "cjson"
-          local method = ngx.req.get_method()
-          local uri = ngx.var.request_uri
-          local headers = ngx.req.get_headers(nil, true)
-          local token_header = headers["Authorization"]
-          local query_args = ngx.req.get_uri_args()
-          ngx.header["X-Token"] = jwt_parser.encode({
-            name  = "foobar",
-          }, fixtures.es512_private_key, 'ES512')
-          ngx.say(json.encode({
-            query_args = query_args,
-            uri = uri,
-            method = method,
-            headers = headers,
-            body = body,
-            status = 300,
-          }))
-        ]]
+local mock_http_server_port    = helpers.get_available_port()
+local port_missing_auth_server = helpers.get_available_port()
+local mock                     = http_mock.new("127.0.0.1:" .. mock_http_server_port, {
+    ["/auth"] = {
+      access = [[
+      local jwt_parser  = require "kong.plugins.jwt.jwt_parser"
+      local fixtures    = require "spec.remote-auth.fixtures"
+      local json = require "cjson"
+      local method = ngx.req.get_method()
+      local uri = ngx.var.request_uri
+      local headers = ngx.req.get_headers(nil, true)
+      local token_header = headers["Authorization"]
+      local query_args = ngx.req.get_uri_args()
+      ngx.header["X-Token"] = jwt_parser.encode({
+        name  = "foobar",
+      }, fixtures.es512_private_key, 'ES512')
+      ngx.say(json.encode({
+        query_args = query_args,
+        uri = uri,
+        method = method,
+        headers = headers,
+        body = body,
+        status = 300,
+      }))
+    ]]
+    },
+    ["/auth-reject"] = {
+      access = [[
+      ngx.status = 401
+      ngx.say("unauthorized")
+    ]]
+    },
+    ["/auth-missing"] = {
+      access = [[
+      ngx.status = 200
+      ngx.say("Ok")
+    ]]
+    },
   },
   nil,
   {
@@ -38,8 +52,7 @@ local mock                  = http_mock.new("127.0.0.1:" .. mock_http_server_por
       req_body = true,
       req_body_large = true,
     }
-  }
-})
+  })
 
 
 for _, strategy in helpers.all_strategies() do
@@ -47,12 +60,20 @@ for _, strategy in helpers.all_strategies() do
     local client
 
     lazy_setup(function()
-      print("mock port", mock_http_server_port)
       local bp = helpers.get_db_utils(strategy, { "routes", "services", "plugins" }, { PLUGIN_NAME })
       -- Inject a test route. No need to create a service, there is a default
       -- service which will echo the request.
       local route1 = bp.routes:insert({
         hosts = { "test1.com" },
+      })
+      local route2 = bp.routes:insert({
+        hosts = { "test2.com" },
+      })
+      local route3 = bp.routes:insert({
+        hosts = { "test3.com" },
+      })
+      local route4 = bp.routes:insert({
+        hosts = { "test4.com" },
       })
       -- add the plugin to test to the route we created
       bp.plugins:insert {
@@ -62,7 +83,27 @@ for _, strategy in helpers.all_strategies() do
           auth_request_url = "http://127.0.0.1:" .. mock_http_server_port .. "/auth",
         },
       }
-
+      bp.plugins:insert {
+        name = PLUGIN_NAME,
+        route = { id = route2.id },
+        config = {
+          auth_request_url = "http://127.0.0.1:" .. mock_http_server_port .. "/auth-reject",
+        },
+      }
+      bp.plugins:insert {
+        name = PLUGIN_NAME,
+        route = { id = route3.id },
+        config = {
+          auth_request_url = "http://127.0.0.1:" .. port_missing_auth_server .. "/auth-reject",
+        },
+      }
+      bp.plugins:insert {
+        name = PLUGIN_NAME,
+        route = { id = route4.id },
+        config = {
+          auth_request_url = "http://127.0.0.1:" .. mock_http_server_port .. "/auth-missing",
+        },
+      }
       assert(helpers.start_kong({
         database           = strategy,
         nginx_conf         = "spec/fixtures/custom_nginx.template",
@@ -117,7 +158,7 @@ for _, strategy in helpers.all_strategies() do
       it("Rejects a missing token", function()
         local r = client:get("/", {
           headers = {
-            host = "test1.com"
+            host = "test1.com",
           }
         })
         -- validate that the request succeeded, response status 200
@@ -126,6 +167,54 @@ for _, strategy in helpers.all_strategies() do
 
         assert.same("Missing Token, Unauthorized", json.message)
       end)
+    end)
+
+    it("Rejects an invalid token", function()
+      local r = client:get("/", {
+        headers = {
+          host = "test2.com",
+          Authorization = "test",
+        }
+      })
+      -- validate that the request succeeded, response status 200
+      local body = assert.response(r).has.status(401)
+      local json = cjson.decode(body)
+
+      assert.same("Unauthorized: authentication failed with status: 401", json.message)
+    end)
+
+    it("Rejects when authentication server is unavailable", function()
+      local r = client:get("/", {
+        headers = {
+          host = "test3.com",
+          Authorization = "test",
+        }
+      })
+      -- validate that the request succeeded, response status 200
+      local body = assert.response(r).has.status(401)
+      local json = cjson.decode(body)
+
+      assert.same(
+        "Unauthorized: failed request to 127.0.0.1:" .. port_missing_auth_server .. ": connection refused",
+        json.message
+      )
+    end)
+
+    it("Rejects when authentication server provides empty token", function()
+      local r = client:get("/", {
+        headers = {
+          host = "test4.com",
+          Authorization = "test",
+        }
+      })
+      -- validate that the request succeeded, response status 200
+      local body = assert.response(r).has.status(502)
+      local json = cjson.decode(body)
+
+      assert.same(
+        "Upsteam Authentication server returned an empty response",
+        json.message
+      )
     end)
   end)
 end

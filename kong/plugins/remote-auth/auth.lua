@@ -112,6 +112,7 @@ local function authenticate(conf)
   end
 end
 
+
 function _M.authenticate(conf)
   local err = authenticate(conf)
   if err then

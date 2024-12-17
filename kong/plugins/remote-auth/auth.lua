@@ -14,10 +14,6 @@ local function bad_gateway(message)
 end
 
 local parsed_urls_cache = {}
--- Parse host url.
--- @param `url` host url
--- @return `parsed_url` a table with host details:
--- scheme, host, port, path, query, userinfo
 local function parse_url(host_url)
   local parsed_url = parsed_urls_cache[host_url]
 
@@ -46,8 +42,7 @@ local function request_auth(conf, request_token)
   local method = conf.auth_request_method
   local timeout = conf.auth_request_timeout
   local keepalive = conf.auth_request_keepalive
-  local token_prefix = conf.auth_request_token_prefix
-  local parsed_url = parse_url(conf.request_auth_url)
+  local parsed_url = parse_url(conf.auth_request_url)
   local request_header = conf.auth_request_token_header
   local response_token_header = conf.auth_response_token_header
   local host = parsed_url.host
@@ -56,12 +51,9 @@ local function request_auth(conf, request_token)
   local httpc = http.new()
   httpc:set_timeout(timeout)
 
-  local headers = {}
-  if token_prefix then
-    headers[request_header] = token_prefix .. request_token
-  else
-    headers[request_header] = request_token
-  end
+  local headers = {
+    [request_header] = request_token
+  }
 
   if conf.auth_request_headers then
     for h, v in pairs(conf.headers) do
@@ -84,13 +76,12 @@ local function request_auth(conf, request_token)
     return nil, "authentication failed with status: " .. res.status
   end
 
-  local token = res.get_header(response_token_header)
+  local token = res.headers[response_token_header]
   return token, nil
 end
 
-
-function _M.authenticate(conf)
-  local request_header = conf.inbound_auth_header
+local function authenticate(conf)
+  local request_header = conf.consumer_auth_header
   local request_token = kong.request.get_header(request_header)
 
   -- If the header is missing, then reject the request
@@ -104,6 +95,7 @@ function _M.authenticate(conf)
     return unauthorized("Unauthorized: " .. err)
   end
 
+
   -- set header in forwarded request
   if auth_token then
     local service_auth_header = conf.service_auth_header
@@ -114,8 +106,16 @@ function _M.authenticate(conf)
       header_value = service_token_prefix .. auth_token
     end
     kong.service.request.set_header(service_auth_header, header_value)
+    kong.response.set_header(conf.auth_response_token_header, auth_token)
   else
     return bad_gateway("Upsteam Authentication server returned an empty response")
+  end
+end
+
+function _M.authenticate(conf)
+  local err = authenticate(conf)
+  if err then
+    kong.response.error(err.status, err.message, err.headers)
   end
 end
 

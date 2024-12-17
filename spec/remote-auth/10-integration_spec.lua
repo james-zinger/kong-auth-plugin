@@ -1,89 +1,131 @@
-local helpers = require "spec.helpers"
+local cjson                 = require "cjson"
+local jwt_parser            = require "kong.plugins.jwt.jwt_parser"
+local helpers               = require "spec.helpers"
+local http_mock             = require "spec.helpers.http_mock"
+local fixtures              = require "spec.remote-auth.fixtures"
 
+local PLUGIN_NAME           = "remote-auth"
 
-local PLUGIN_NAME = "remote-auth"
+local mock_http_server_port = helpers.get_available_port()
+local mock                  = http_mock.new("127.0.0.1:" .. mock_http_server_port, {
+  ["/auth"] = {
+    access = [[
+          local jwt_parser  = require "kong.plugins.jwt.jwt_parser"
+          local fixtures    = require "spec.remote-auth.fixtures"
+          local json = require "cjson"
+          local method = ngx.req.get_method()
+          local uri = ngx.var.request_uri
+          local headers = ngx.req.get_headers(nil, true)
+          local token_header = headers["Authorization"]
+          local query_args = ngx.req.get_uri_args()
+          ngx.header["X-Token"] = jwt_parser.encode({
+            name  = "foobar",
+          }, fixtures.es512_private_key, 'ES512')
+          ngx.say(json.encode({
+            query_args = query_args,
+            uri = uri,
+            method = method,
+            headers = headers,
+            body = body,
+            status = 300,
+          }))
+        ]]
+  },
+  nil,
+  {
+    log_opts = {
+      req = true,
+      req_body = true,
+      req_body_large = true,
+    }
+  }
+})
 
 
 for _, strategy in helpers.all_strategies() do
-  if strategy ~= "cassandra" then
-    describe(PLUGIN_NAME .. ": (access) [#" .. strategy .. "]", function()
-      local client
+  describe(PLUGIN_NAME .. ": (access) [#" .. strategy .. "]", function()
+    local client
 
-      lazy_setup(function()
-        local bp = helpers.get_db_utils(strategy == "off" and "postgres" or strategy, nil, { PLUGIN_NAME })
+    lazy_setup(function()
+      print("mock port", mock_http_server_port)
+      local bp = helpers.get_db_utils(strategy, { "routes", "services", "plugins" }, { PLUGIN_NAME })
+      -- Inject a test route. No need to create a service, there is a default
+      -- service which will echo the request.
+      local route1 = bp.routes:insert({
+        hosts = { "test1.com" },
+      })
+      -- add the plugin to test to the route we created
+      bp.plugins:insert {
+        name = PLUGIN_NAME,
+        route = { id = route1.id },
+        config = {
+          auth_request_url = "http://127.0.0.1:" .. mock_http_server_port .. "/auth",
+        },
+      }
 
-        -- Inject a test route. No need to create a service, there is a default
-        -- service which will echo the request.
-        local route1 = bp.routes:insert({
-          hosts = { "test1.com" },
+      assert(helpers.start_kong({
+        database           = strategy,
+        nginx_conf         = "spec/fixtures/custom_nginx.template",
+        declarative_config = strategy == "off" and helpers.make_yaml_file() or nil,
+        plugins            = PLUGIN_NAME,
+      }))
+      assert(mock:start())
+    end)
+
+    lazy_teardown(function()
+      helpers.stop_kong(nil, true)
+      assert(mock:stop())
+    end)
+
+    before_each(function()
+      client = helpers.proxy_client()
+    end)
+
+    after_each(function()
+      mock:clean()
+      if client then client:close() end
+      mock.client = nil
+    end)
+
+
+    describe("Authorized: ", function()
+      it("Can get token and validate it", function()
+        local res = client:get("/", {
+          headers = {
+            Host = "test1.com",
+            Authorization = "test",
+          }
         })
-        -- add the plugin to test to the route we created
-        bp.plugins:insert {
-          name = PLUGIN_NAME,
-          route = { id = route1.id },
-          config = {},
-        }
 
-        -- start kong
-        assert(helpers.start_kong({
-          -- set the strategy
-          database           = strategy,
-          -- use the custom test template to create a local mock server
-          nginx_conf         = "spec/fixtures/custom_nginx.template",
-          -- make sure our plugin gets loaded
-          plugins            = "bundled," .. PLUGIN_NAME,
-          -- write & load declarative config, only if 'strategy=off'
-          declarative_config = strategy == "off" and helpers.make_yaml_file() or nil,
-        }))
-      end)
+        assert.response(res).has.status(200)
 
-      lazy_teardown(function()
-        helpers.stop_kong(nil, true)
-      end)
+        -- assert that the mock got the right header
+        local logs = mock:retrieve_mocking_logs()
+        local req = assert(logs[#logs].req)
+        assert.same(req.headers["Authorization"], "test")
 
-      before_each(function()
-        client = helpers.proxy_client()
-      end)
-
-      after_each(function()
-        if client then client:close() end
-      end)
-
-
-
-      describe("request", function()
-        it("gets a 'hello-world' header", function()
-          local r = client:get("/request", {
-            headers = {
-              host = "test1.com"
-            }
-          })
-          -- validate that the request succeeded, response status 200
-          assert.response(r).has.status(200)
-          -- now check the request (as echoed by the mock backend) to have the header
-          local header_value = assert.request(r).has.header("hello-world")
-          -- validate the value of that header
-          assert.equal("this is on a request", header_value)
-        end)
-      end)
-
-
-
-      describe("response", function()
-        it("gets a 'bye-world' header", function()
-          local r = client:get("/request", {
-            headers = {
-              host = "test1.com"
-            }
-          })
-          -- validate that the request succeeded, response status 200
-          assert.response(r).has.status(200)
-          -- now check the response to have the header
-          local header_value = assert.response(r).has.header("bye-world")
-          -- validate the value of that header
-          assert.equal("this is on the response", header_value)
-        end)
+        -- assert that the response contains the jwt token
+        local header_value = assert.response(res).has.header("X-Token")
+        local jwt = assert(jwt_parser:new(header_value))
+        assert.True(jwt:verify_signature(fixtures.es512_public_key))
       end)
     end)
-  end
+
+
+
+    describe("Unauthorized:", function()
+      it("Rejects a missing token", function()
+        local r = client:get("/", {
+          headers = {
+            host = "test1.com"
+          }
+        })
+        -- validate that the request succeeded, response status 200
+        local body = assert.response(r).has.status(401)
+        local json = cjson.decode(body)
+
+        assert.same("Missing Token, Unauthorized", json.message)
+      end)
+    end)
+  end)
 end

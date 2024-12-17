@@ -18,9 +18,9 @@ local schema = {
             }
           },
           {
-            inbound_auth_header = typedefs.header_name {
+            consumer_auth_header = typedefs.header_name {
               required = true,
-              default = "X-Auth",
+              default = "Authorization",
             }
           },
           {
@@ -48,14 +48,6 @@ local schema = {
             auth_request_token_header = typedefs.header_name {
               required = true,
               default = "Authorization",
-            }
-          },
-          {
-            auth_request_token_prefix = {
-              type = "string",
-              default = "bearer ",
-              required = true,
-              description = "A header value prefix for the authentication request header value.",
             }
           },
           {

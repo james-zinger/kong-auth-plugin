@@ -25,11 +25,10 @@ describe(PLUGIN_NAME .. ": (schema)", function()
   it("accepts all configuration values", function()
     local ok, err = validate({
       auth_request_url = "http://example.com/auth",
-      inbound_auth_header = "X-Test-Header",
+      consumer_auth_header = "X-Test-Header",
       auth_request_method = "FOO",
       auth_request_timeout = 100,
       auth_request_keepalive = 20000,
-      auth_request_token_prefix = "bar",
       auth_request_token_header = "Authorization",
       auth_response_token_header = "X-Auth",
       auth_request_headers = {

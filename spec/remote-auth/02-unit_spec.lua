@@ -25,6 +25,13 @@ describe(PLUGIN_NAME .. ": (unit) ", function()
           return nil
         end,
       },
+      response = {
+        error = function(status, message, headers)
+
+        end,
+        set_header = function(name, value)
+        end,
+      },
       service = {
         request = {
           set_header = function(name, value)
@@ -46,9 +53,7 @@ describe(PLUGIN_NAME .. ": (unit) ", function()
               if mock_auth_response_status then
                 return {
                   status = mock_auth_response_status,
-                  get_header = function(name)
-                    return mock_auth_response_headers[name]
-                  end
+                  headers = mock_auth_response_headers
                 }
               else
                 return nil
@@ -76,8 +81,8 @@ describe(PLUGIN_NAME .. ": (unit) ", function()
     request_header_name = "X-Auth"
     -- clear the upvalues to prevent test results mixing between tests
     config = {
-      request_auth_url = "http://127.0.0.1:2101/auth",
-      inbound_auth_header = "X-Auth",
+      auth_request_url = "http://127.0.0.1:2101/auth",
+      consumer_auth_header = "X-Auth",
       auth_response_token_header = "X-Token",
       auth_request_token_header = "Authorization",
       auth_request_method = "POST",

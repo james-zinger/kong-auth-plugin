@@ -17,6 +17,7 @@ describe(PLUGIN_NAME .. ": (schema)", function()
   it("accepts minimal required configuration", function()
     local ok, err = validate({
       auth_request_url = "http://example.com/auth",
+      jwt_public_key = "sample-public-key",
     })
     assert.is_nil(err)
     assert.is_truthy(ok)
@@ -36,6 +37,9 @@ describe(PLUGIN_NAME .. ": (schema)", function()
       },
       service_auth_header = "Example-Header",
       service_auth_header_value_prefix = "token ",
+      jwt_public_key = "foobarbaz",
+      jwt_max_expiration = 100000,
+      request_authentication_header = "X-Testing",
     })
     assert.is_nil(err)
     assert.is_truthy(ok)
@@ -47,10 +51,11 @@ describe(PLUGIN_NAME .. ": (schema)", function()
       auth_request_headers = {
         ["X-Who-Am-I"] = "",
       },
+      jwt_public_key = "testing",
     })
     assert.same({
       config = {
-        auth_request_headers = "length must be at least 1"
+        auth_request_headers = "length must be at least 1",
       }
     }, err)
     assert.is_falsy(ok)
@@ -64,7 +69,8 @@ describe(PLUGIN_NAME .. ": (schema)", function()
         auth_request_headers = {
           ["X-Who-Am-I"] = "123",
           [header] = "FooBar",
-        }
+        },
+        jwt_public_key = "testing",
       })
       assert.same({
         config = {

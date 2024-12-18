@@ -1,9 +1,11 @@
-local http = require "resty.http"
-local url = require "socket.url"
+local http        = require "resty.http"
+local url         = require "socket.url"
+local jwt_decoder = require "kong.plugins.jwt.jwt_parser"
+
 
 local kong = kong
-local _M = {}
-local fmt = string.format
+local _M   = {}
+local fmt  = string.format
 
 local function unauthorized(message)
   return { status = 401, message = message }
@@ -62,7 +64,6 @@ local function request_auth(conf, request_token)
   end
 
   local auth_server_url = fmt("%s://%s:%d%s", parsed_url.scheme, host, port, parsed_url.path)
-
   local res, err = httpc:request_uri(auth_server_url, {
     method = method,
     headers = headers,
@@ -80,6 +81,36 @@ local function request_auth(conf, request_token)
   return token, nil
 end
 
+local function validate_token(token, public_key, max_expiration)
+  if not token then
+    return false, nil
+  end
+
+  local jwt, err = jwt_decoder:new(token)
+  if err then
+    return false, unauthorized("JWT - Bad token; " .. tostring(err))
+  end
+
+  -- Verify JWT signature
+  if not jwt:verify_signature(public_key) then
+    return false, unauthorized("JWT - Invalid signature")
+  end
+
+  -- Verify the JWT expiration
+  if max_expiration ~= nil and max_expiration > 0 then
+    local _, errs = jwt:verify_registered_claims({ "exp" })
+    if errs then
+      return false, unauthorized("JWT - Token Expired - " .. tostring(errs))
+    end
+    _, errs = jwt:check_maximum_expiration(max_expiration)
+    if errs then
+      return false, unauthorized("JWT - Token Expiry Exceeds Maximum - " .. tostring(errs))
+    end
+  end
+
+  return true, nil
+end
+
 local function authenticate(conf)
   local request_header = conf.consumer_auth_header
   local request_token = kong.request.get_header(request_header)
@@ -95,12 +126,15 @@ local function authenticate(conf)
     return unauthorized("Unauthorized: " .. err)
   end
 
-
   -- set header in forwarded request
   if auth_token then
+    _, err = validate_token(auth_token, conf.jwt_public_key, conf.jwt_max_expiration)
+    if err then
+      return bad_gateway(err.message)
+    end
+
     local service_auth_header = conf.service_auth_header
     local service_token_prefix = conf.service_auth_header_value_prefix
-
     local header_value = auth_token
     if service_token_prefix then
       header_value = service_token_prefix .. auth_token
@@ -114,7 +148,23 @@ end
 
 
 function _M.authenticate(conf)
-  local err = authenticate(conf)
+  -- Check if the request has a valid JWT
+  local authenticated, err = validate_token(
+    kong.request.get_header(conf.request_authentication_header),
+    conf.jwt_public_key,
+    conf.jwt_max_expiration
+  )
+  if err then
+    kong.response.error(err.status, err.message, err.headers)
+    return
+  end
+  -- If the request is authenticated, then we don't need to re-authenticate
+  if authenticated then
+    return
+  end
+
+  -- Unauthenticated request needs to be authenticated.
+  err = authenticate(conf)
   if err then
     kong.response.error(err.status, err.message, err.headers)
   end

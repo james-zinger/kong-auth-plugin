@@ -1,3 +1,7 @@
+local jwt_parser = require "kong.plugins.jwt.jwt_parser"
+local fixtures   = require "spec.remote-auth.fixtures"
+
+
 local PLUGIN_NAME = "remote-auth"
 
 describe(PLUGIN_NAME .. ": (unit) ", function()
@@ -104,6 +108,8 @@ describe(PLUGIN_NAME .. ": (unit) ", function()
       auth_request_keepalive = 10000,
       auth_request_timeout = 2000,
       service_auth_header = "X-Auth",
+      jwt_public_key = fixtures.es512_public_key,
+      request_authentication_header = "X-Token",
     }
   end)
 
@@ -121,11 +127,15 @@ describe(PLUGIN_NAME .. ": (unit) ", function()
   end)
 
   describe("Success -", function()
+    local token = jwt_parser.encode({
+      name = "foobar",
+    }, fixtures.es512_private_key, 'ES512')
+
     before_each(function()
       mock_auth_response_status = 200
       mock_request_header_value = "asdf1234"
       mock_auth_response_headers = {
-        ["X-Token"] = "foobarbaz98765"
+        ["X-Token"] = token
       }
     end)
     it("calls authentication api when token exists", function()
@@ -146,9 +156,9 @@ describe(PLUGIN_NAME .. ": (unit) ", function()
 
     it("sets headers on successful auth call", function()
       plugin:access(config)
-      assert.same(mock_calls["service_request_set_headers"], { { name = "X-Auth", value = "foobarbaz98765" } })
+      assert.same(mock_calls["service_request_set_headers"], { { name = "X-Auth", value = token } })
       assert.same({}, mock_calls["response_error"])
-      assert.same(mock_calls["response_set_headers"], { { name = "X-Token", value = "foobarbaz98765" } })
+      assert.same(mock_calls["response_set_headers"], { { name = "X-Token", value = token } })
     end)
 
     it("sets timeout on auth call", function()

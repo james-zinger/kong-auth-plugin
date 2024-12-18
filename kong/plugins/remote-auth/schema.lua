@@ -97,7 +97,31 @@ local schema = {
               required = true,
               description = "A header value prefix for the upstream service request header value.",
             }
-          }
+          },
+          {
+            request_authentication_header = typedefs.header_name {
+              required = true,
+              default = "X-Token",
+            }
+          },
+          {
+            jwt_public_key = {
+              type = "string",
+              required = true,
+              description = "The public key used to verify the siguration of issued JWT tokens",
+            }
+          },
+          {
+            jwt_max_expiration = {
+              description =
+              "A value between 0 and 31536000 (365 days) limiting the lifetime of the JWT to maximum_expiration seconds in the future.",
+              type = "number",
+              between = { 0, 31536000 },
+              required = false,
+              default = 0,
+            }
+          },
+
         },
         entity_checks = {},
       },

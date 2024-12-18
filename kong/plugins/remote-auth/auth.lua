@@ -100,7 +100,7 @@ local function validate_token(token, public_key, max_expiration)
   if max_expiration ~= nil and max_expiration > 0 then
     local _, errs = jwt:verify_registered_claims({ "exp" })
     if errs then
-      return false, unauthorized("JWT - Token Expired - " .. tostring(errs))
+      return false, unauthorized("JWT - Token Expired")
     end
     _, errs = jwt:check_maximum_expiration(max_expiration)
     if errs then

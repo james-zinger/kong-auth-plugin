@@ -269,6 +269,8 @@ for _, strategy in helpers.all_strategies() do
         })
         -- validate that the request succeeded, response status 200
         local body = assert.response(r).has.status(502)
+        local json = cjson.decode(body)
+        assert.same("JWT - Invalid signature", json.message)
       end)
 
       it("Rejects with invalid expireation time", function()
@@ -280,6 +282,8 @@ for _, strategy in helpers.all_strategies() do
         })
         -- validate that the request succeeded, response status 200
         local body = assert.response(r).has.status(502)
+        local json = cjson.decode(body)
+        assert.same("JWT - Token Expired", json.message)
       end)
     end)
   end)
